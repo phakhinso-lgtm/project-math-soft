@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Derivative & Tangent Visualizer (2D / 3D)</title>
+<!-- math.js ใช้แปลงสมการที่พิมพ์เป็นฟังก์ชัน (Math Parser), Plotly ใช้วาดกราฟ 2D และ 3D -->
+<script src="https://cdn.jsdelivr.net/npm/mathjs@12.4.2/lib/browser/math.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --ink:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Noto Sans Thai","Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header { max-width:1100px; margin:0 auto; padding:20px 16px 4px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  header p { margin:0; color:var(--muted); font-size:.9rem; }
+  .dimbar { max-width:1100px; margin:14px auto 0; padding:0 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .dimbar span { color:var(--muted); font-size:.9rem; margin-right:4px; }
+  .dim { border:2px solid var(--accent); background:#fff; color:var(--accent); padding:8px 18px; border-radius:999px; cursor:pointer; font:inherit; font-weight:600; }
+  .dim.active { background:var(--accent); color:#fff; }
+  .tabs { max-width:1100px; margin:12px auto 0; padding:0 16px; display:flex; gap:8px; flex-wrap:wrap; }
+  .tab { border:1px solid var(--line); background:#fff; padding:8px 14px; border-radius:8px; cursor:pointer; font:inherit; }
+  .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  main { max-width:1100px; margin:12px auto 32px; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px 20px; }
+  label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
+  label b { color:var(--ink); }
+  input[type=text], input[type=number], select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  input[readonly] { background:#f3f4f6; }
+  .hint { color:var(--muted); font-size:.8rem; margin-top:4px; line-height:1.5; }
+  .hint code { background:#f3f4f6; padding:1px 4px; border-radius:4px; }
+  .checks { margin-top:12px; display:flex; gap:20px; flex-wrap:wrap; }
+  .checks label { display:flex; align-items:center; gap:6px; margin:0; color:var(--ink); }
+  .plots { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .plots .card { margin-bottom:0; }
+  @media (max-width:800px) { .plots { grid-template-columns:1fr; } }
+  .plot { height:380px; }
+  .plot3d { height:470px; }
+  .calc { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.9rem; line-height:1.7; white-space:pre-wrap; }
+  .err { color:#b91c1c; font-size:.85rem; min-height:1.2em; }
+  table { border-collapse:collapse; width:100%; font-size:.9rem; margin:6px 0 14px; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  .hidden { display:none !important; }
+  h3 { font-size:1rem; margin:8px 0 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Interactive Derivative & Tangent Visualizer</h1>
+  <p>ดูอนุพันธ์ เส้นสัมผัส และระนาบสัมผัสแบบเรียลไทม์ ทั้งในระนาบ 2 มิติและปริภูมิ 3 มิติ</p>
+</header>
+
+<!-- ===================== ตัวเลือกมิติ ===================== -->
+<div class="dimbar">
+  <span>เลือกมิติ:</span>
+  <button class="dim active" id="dimBtn2" onclick="showDim(2)">2 มิติ  y = f(x)</button>
+  <button class="dim" id="dimBtn3" onclick="showDim(3)">3 มิติ  z = f(x, y)</button>
+</div>
+
+<!-- ============================================================
+     หน้า 2 มิติ
+     ============================================================ -->
+<div id="dim2">
+<div class="tabs">
+  <button class="tab active" id="tab1" onclick="showMode(1)">Mode 1: Tangent Line</button>
+  <button class="tab" id="tab2" onclick="showMode(2)">Mode 2: Intersection Finder</button>
+</div>
+
+<main>
+  <!-- ===================== MODE 1 ===================== -->
+  <section id="mode1">
+    <div class="card">
+      <div class="controls">
+        <div>
+          <label>ตัวอย่าง / โหมดฟังก์ชัน</label>
+          <select id="preset"></select>
+        </div>
+        <div>
+          <label>ฟังก์ชัน f(x) <small>(ใช้ตัวแปร x, A, B, C ได้ เช่น A*sin(B*x + C))</small></label>
+          <input type="text" id="expr">
+          <div class="err" id="err1"></div>
+          <div class="hint">
+            ฟังก์ชันที่ใช้ได้: <code>sin</code> <code>cos</code> <code>tan</code> <code>exp</code> <code>sqrt(x)</code>
+            <code>ln(x)</code> (ลอการิทึมฐาน e) <code>log(x)</code> (ฐาน 10) <code>log(x, b)</code> (ฐาน b)
+            <code>abs</code> และค่าคงที่ <code>pi</code> <code>e</code> ใช้ <code>^</code> แทนยกกำลัง
+          </div>
+        </div>
+        <div>
+          <label>จุดสัมผัส a</label>
+          <input type="number" id="a" step="any">
+        </div>
+        <div>
+          <label>ค่า h (ใช้ใน Central Difference และเส้นเซแคนต์)</label>
+          <input type="number" id="h" step="any" value="0.001">
+        </div>
+        <div>
+          <label>ช่วงของกราฟ: x ต่ำสุด</label>
+          <input type="number" id="x0" step="any">
+        </div>
+        <div>
+          <label>ช่วงของกราฟ: x สูงสุด</label>
+          <input type="number" id="x1" step="any">
+        </div>
+      </div>
+      <div class="controls" id="paramBox" style="margin-top:12px"></div>
+      <div class="checks">
+        <label><input type="checkbox" id="secant" checked> แสดงเส้นเซแคนต์</label>
+        <label><input type="checkbox" id="showD" checked> แสดงกราฟ f'(x)</label>
+      </div>
+    </div>
+
+    <div class="plots" id="plots">
+      <div class="card"><div id="plot1" class="plot"></div></div>
+      <div class="card" id="plot2card"><div id="plot2" class="plot"></div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3>ขั้นตอนการคำนวณ</h3>
+      <div class="calc" id="calc"></div>
+    </div>
+  </section>
+
+  <!-- ===================== MODE 2 ===================== -->
+  <section id="mode2" class="hidden">
+    <div class="card">
+      <div class="controls">
+        <div>
+          <label>ฟังก์ชัน f(x)</label>
+          <input type="text" id="expr2" value="x^3 - 2*x">
+          <div class="err" id="err2"></div>
+        </div>
+        <div>
+          <label>ฟังก์ชัน g(x)</label>
+          <input type="text" id="expr3" value="x">
+          <div class="hint">
+            เป็นฟังก์ชันใดก็ได้ เช่น <code>2*x + 1</code> (เส้นตรง) <code>x^2</code> <code>cos(x)</code>
+            <code>exp(-x)</code> <code>ln(x)</code> <code>sqrt(x)</code>
+          </div>
+        </div>
+        <div>
+          <label>x ต่ำสุด</label>
+          <input type="number" id="xmin" step="any" value="-3">
+        </div>
+        <div>
+          <label>x สูงสุด</label>
+          <input type="number" id="xmax" step="any" value="3">
+        </div>
+      </div>
+    </div>
+    <div class="card"><div id="plot3" class="plot"></div></div>
+    <div class="card" id="roots"></div>
+  </section>
+</main>
+</div>
+
+<!-- ============================================================
+     หน้า 3 มิติ
+     ============================================================ -->
+<div id="dim3" class="hidden">
+<div class="tabs">
+  <button class="tab active" id="tab3" onclick="showMode3(1)">3D Mode 1: Tangent Plane</button>
+  <button class="tab" id="tab4" onclick="showMode3(2)">3D Mode 2: Critical Points</button>
+</div>
+
+<main>
+  <!-- ===================== 3D MODE 1: ระนาบสัมผัส ===================== -->
+  <section id="mode3">
+    <div class="card">
+      <div class="controls">
+        <div>
+          <label>ฟังก์ชัน z = f(x, y) <small>(ใช้ตัวแปร x, y และ A, B, C ได้)</small></label>
+          <input type="text" id="sExpr">
+          <div class="err" id="sErr"></div>
+          <div class="hint">
+            เช่น <code>x^2 + y^2</code> <code>sin(x)*cos(y)</code> <code>exp(-(x^2 + y^2))</code>
+            <code>ln(x*y)</code> ใช้ฟังก์ชันได้เหมือนหน้า 2 มิติ
+          </div>
+        </div>
+        <div>
+          <label>จุดสัมผัส a (พิกัด x)</label>
+          <input type="number" id="sA" step="any">
+        </div>
+        <div>
+          <label>จุดสัมผัส b (พิกัด y)</label>
+          <input type="number" id="sB" step="any">
+        </div>
+        <div>
+          <label>ค่า h (ใช้คำนวณอนุพันธ์ย่อย)</label>
+          <input type="number" id="sH" step="any" value="0.001">
+        </div>
+        <div>
+          <label>x ต่ำสุด</label>
+          <input type="number" id="sXmin" step="any">
+        </div>
+        <div>
+          <label>x สูงสุด</label>
+          <input type="number" id="sXmax" step="any">
+        </div>
+        <div>
+          <label>y ต่ำสุด</label>
+          <input type="number" id="sYmin" step="any">
+        </div>
+        <div>
+          <label>y สูงสุด</label>
+          <input type="number" id="sYmax" step="any">
+        </div>
+      </div>
+      <div class="controls" id="sParamBox" style="margin-top:12px"></div>
+      <div class="checks">
+        <label><input type="checkbox" id="sPlane" checked> แสดงระนาบสัมผัส</label>
+        <label><input type="checkbox" id="sTrace" checked> แสดงเส้นภาคตัด x = a และ y = b</label>
+        <label><input type="checkbox" id="sGrad" checked> แสดงเวกเตอร์เกรเดียนต์</label>
+      </div>
+    </div>
+
+    <div class="plots">
+      <div class="card"><div id="sPlot1" class="plot3d"></div></div>
+      <div class="card"><div id="sPlot2" class="plot3d"></div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3>ขั้นตอนการคำนวณ</h3>
+      <div class="calc" id="sCalc"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 3D MODE 2: จุดวิกฤต ===================== -->
+  <section id="mode4" class="hidden">
+    <div class="card">
+      <div class="controls">
+        <div>
+          <label>ฟังก์ชัน z = f(x, y)</label>
+          <input type="text" id="cExpr" value="x^3 - 3*x + y^2">
+          <div class="err" id="cErr"></div>
+          <div class="hint">ระบบหาจุดที่ ∇f = 0 ด้วย Newton–Raphson แบบ 2 ตัวแปร แล้วจำแนกชนิดด้วยตัวทดสอบอนุพันธ์อันดับสอง</div>
+        </div>
+        <div>
+          <label>x ต่ำสุด</label>
+          <input type="number" id="cXmin" step="any" value="-2.5">
+        </div>
+        <div>
+          <label>x สูงสุด</label>
+          <input type="number" id="cXmax" step="any" value="2.5">
+        </div>
+        <div>
+          <label>y ต่ำสุด</label>
+          <input type="number" id="cYmin" step="any" value="-2">
+        </div>
+        <div>
+          <label>y สูงสุด</label>
+          <input type="number" id="cYmax" step="any" value="2">
+        </div>
+      </div>
+    </div>
+
+    <div class="plots">
+      <div class="card"><div id="cPlot1" class="plot3d"></div></div>
+      <div class="card"><div id="cPlot2" class="plot3d"></div></div>
+    </div>
+
+    <div class="card" id="cRoots" style="margin-top:12px"></div>
+  </section>
+</main>
+</div>
+
+<script>
+/* ============================================================
+   ส่วนที่ 1: ตัวช่วยทั่วไป
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const cfg = { responsive: true, displaylogo: false };
+const num = id => $(id).valueAsNumber;            // อ่านค่าตัวเลขจากช่องพิมพ์ (ว่าง/ไม่ใช่ตัวเลข = NaN)
+const clean = v => Number.isFinite(v) ? v : null; // ให้ Plotly ข้ามค่าที่ไม่นิยาม (เช่น ln ของค่าลบ)
+
+function fmt(v, d = 4) {
+  if (!Number.isFinite(v)) return "—";
+  if (v !== 0 && Math.abs(v) < 1e-4) return v.toExponential(2);
+  return v.toFixed(d);
+}
+
+function baseLayout(xl, yl, title) {
+  return {
+    title: { text: title, font: { size: 14 } },
+    margin: { l: 60, r: 15, t: 40, b: 50 },
+    xaxis: { title: xl },
+    yaxis: { title: yl },
+    legend: { orientation: "h", y: -0.25 },
+    paper_bgcolor: "rgba(0,0,0,0)"
+  };
+}
+
+/* ฟังก์ชันที่เพิ่มเข้าไปใน parser
+   - ln(x)     = ลอการิทึมธรรมชาติ (ฐาน e)
+   - log(x)    = ลอการิทึมฐาน 10  (log(x, b) = ฐาน b)
+   - sqrt(x)   = รากที่สอง (ค่าลบจะได้ NaN แล้วกราฟจะเว้นช่วงนั้นไว้) */
+const FUNCS = {
+  ln:   x => Math.log(x),
+  log:  (x, b) => (b === undefined ? Math.log10(x) : Math.log(x) / Math.log(b)),
+  sqrt: x => Math.sqrt(x)
+};
+
+// Math Parser: แปลงข้อความสมการเป็นฟังก์ชัน JavaScript (1 ตัวแปร)
+function makeF(expr, scope) {
+  const code = math.compile(expr);
+  const base = { ...FUNCS, ...scope };
+  code.evaluate({ ...base, x: 1 });           // ทดสอบ ถ้าสมการผิดจะ throw ตรงนี้
+  return x => {
+    try {
+      const v = code.evaluate({ ...base, x });
+      return typeof v === "number" ? v : NaN;
+    } catch (e) { return NaN; }
+  };
+}
+
+// Central Difference: f'(x) ≈ (f(x+h) - f(x-h)) / 2h
+const centralDiff = (f, x, h) => (f(x + h) - f(x - h)) / (2 * h);
+
+/* ============================================================
+   ส่วนที่ 2: ตัวเลือกของ 2D Mode 1 (กำหนดเอง + ตัวอย่างประยุกต์)
+   params = [ชื่อที่แสดง, ค่าเริ่มต้น]  (แทนตัวแปร A, B, C ตามลำดับ) ผู้ใช้พิมพ์ค่าเองได้
+   ============================================================ */
+const PRESETS = {
+  custom: {
+    name: "กำหนดเอง (พิมพ์ฟังก์ชันเอง)",
+    expr: "A*sin(B*x + C)",
+    params: [["A", 1], ["B", 1], ["C", 0]],
+    xr: [-6, 6], xl: "x", yl: "f(x)", sl: "f'(a)"
+  },
+  position: {
+    name: "ฟิสิกส์: ตำแหน่ง → ความเร็ว",
+    expr: "A*x + 0.5*B*x^2",
+    params: [["ความเร็วต้น v₀ (m/s)", 5], ["ความเร่ง a (m/s²)", 2]],
+    xr: [0, 10], xl: "เวลา t (s)", yl: "ตำแหน่ง s (m)", sl: "ความเร็วขณะหนึ่ง v (m/s)"
+  },
+  projectile: {
+    name: "ฟิสิกส์: วิถีโพรเจกไทล์",
+    expr: "x*tan(A*pi/180) - 9.8*x^2/(2*B^2*cos(A*pi/180)^2)",
+    params: [["มุมขว้าง (องศา)", 45], ["ความเร็วต้น (m/s)", 20]],
+    xr: [0, 45], xl: "ระยะแนวราบ x (m)", yl: "ความสูง y (m)", sl: "ความชันของวิถี dy/dx"
+  },
+  logistic: {
+    name: "ชีววิทยา: การเติบโตของประชากร (logistic)",
+    expr: "C/(1 + ((C-A)/A)*exp(-B*x))",
+    params: [["ประชากรเริ่มต้น P₀", 10], ["อัตราการเติบโต r", 0.6], ["ความจุสิ่งแวดล้อม K", 500]],
+    xr: [0, 20], xl: "เวลา t (วัน)", yl: "ประชากร P(t)", sl: "อัตราเพิ่มประชากร dP/dt"
+  }
+};
+
+const NAMES = ["A", "B", "C"];
+let params = { A: 0, B: 0, C: 0 };
+let activeNames = [];                     // ตัวแปรที่มีช่องพิมพ์อยู่ใน preset ปัจจุบัน
+
+function buildParams(P) {
+  const box = $("paramBox");
+  box.innerHTML = "";
+  params = { A: 0, B: 0, C: 0 };
+  activeNames = [];
+  P.params.forEach(([label, val], i) => {
+    const n = NAMES[i];
+    params[n] = val;
+    activeNames.push(n);
+    const tag = label === n ? n : `${label} (${n})`;
+    const d = document.createElement("div");
+    d.innerHTML = `<label>${tag}</label><input type="number" id="p${n}" step="any" value="${val}">`;
+    box.appendChild(d);
+    d.querySelector("input").addEventListener("input", e => {
+      params[n] = e.target.valueAsNumber;     // ถ้าช่องว่างจะเป็น NaN แล้ว draw() แจ้งเตือนเอง
+      draw();
+    });
+  });
+}
+
+function setPreset(key) {
+  const P = PRESETS[key];
+  $("expr").value = P.expr;
+  $("expr").readOnly = key !== "custom";
+  buildParams(P);
+  $("x0").value = P.xr[0];
+  $("x1").value = P.xr[1];
+  $("a").value = (P.xr[0] + P.xr[1]) / 2;
+  draw();
+}
+
+/* ============================================================
+   ตัวช่วย: สร้างสมการ f(x) และ f'(x) ในรูปตัวอักษร (ใช้แสดงบนหัวกราฟ)
+   ============================================================ */
+function symbolicEq(expr, scope) {
+  const r6 = v => +v.toPrecision(6);                       // ปัดเลขทศนิยมยาว ๆ ให้อ่านง่าย
+  const opts = { exactFractions: false };
+
+  // แปลงเป็นรูปที่ math.js หาอนุพันธ์ได้: ln → log ฐาน e, log(x) → log ฐาน 10, แทนค่า A, B, C
+  const toMath = node => node.transform(function t(n) {
+    if (n.isFunctionNode) {
+      const args = n.args.map(a => a.transform(t));
+      const name = n.fn.name;
+      if (name === "ln") return new math.FunctionNode("log", args);
+      if (name === "log" && args.length === 1) return new math.FunctionNode("log", [args[0], new math.ConstantNode(10)]);
+      return new math.FunctionNode(n.fn, args);
+    }
+    if (n.isSymbolNode && n.name in scope) return new math.ConstantNode(scope[n.name]);
+    return n;
+  });
+
+  // แปลงกลับเป็นสัญลักษณ์ที่ใช้บนเว็บ: log ฐาน e → ln, log ฐาน 10 → log
+  const toShow = node => node.transform(function t(n) {
+    if (n.isFunctionNode && n.fn.name === "log") {
+      const args = n.args.map(a => a.transform(t));
+      if (args.length === 1) return new math.FunctionNode("ln", args);
+      if (args[1].isConstantNode && args[1].value === 10) return new math.FunctionNode("log", [args[0]]);
+      return new math.FunctionNode("log", args);
+    }
+    return n;
+  });
+
+  const roundC = node => node.transform(n =>
+    n.isConstantNode && typeof n.value === "number" ? new math.ConstantNode(r6(n.value)) : n);
+  const tidy = node => math.simplify(roundC(math.simplify(node, {}, opts)), {}, opts);
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const pretty = node => esc(toShow(node).toString({ parenthesis: "auto" })
+    .replace(/ \* /g, "·")                                   // ใช้ · แทน *
+    .replace(/(\d)·(?=[a-z(])/gi, "$1"));                    // 2·x → 2x
+
+  let f, d;
+  try { f = tidy(toMath(math.parse(expr))); }
+  catch (e) { return { f: esc(expr), d: "—" }; }
+  try { d = tidy(math.derivative(f, "x")); }
+  catch (e) { return { f: pretty(f), d: "หาในรูปสมการไม่ได้" }; }
+  return { f: pretty(f), d: pretty(d) };
+}
+
+/* ============================================================
+   ส่วนที่ 3: 2D Mode 1 – เส้นสัมผัส
+   ============================================================ */
+function draw() {
+  const P = PRESETS[$("preset").value];
+  const a = num("a"), h = num("h"), x0 = num("x0"), x1 = num("x1");
+  const setErr = msg => { $("err1").textContent = msg; };
+
+  if ([a, h, x0, x1].some(v => !Number.isFinite(v)) || activeNames.some(n => !Number.isFinite(params[n]))) {
+    setErr("กรุณากรอกค่าที่เป็นตัวเลขให้ครบทุกช่อง"); return;
+  }
+  if (!(x1 > x0)) { setErr("x สูงสุดต้องมากกว่า x ต่ำสุด"); return; }
+  if (!(h > 0))   { setErr("ค่า h ต้องมากกว่า 0"); return; }
+
+  let f;
+  try {
+    f = makeF($("expr").value, params);
+    setErr("");
+  } catch (e) {
+    setErr("สมการไม่ถูกต้อง: " + e.message);
+    return;
+  }
+
+  const xs = Array.from({ length: 500 }, (_, i) => x0 + (x1 - x0) * i / 499);
+  const ys = xs.map(f);
+  const fin = ys.filter(Number.isFinite);
+  if (!fin.length) { setErr("คำนวณค่าฟังก์ชันในช่วงนี้ไม่ได้ (ลองตรวจโดเมนของฟังก์ชัน เช่น ln และ sqrt ต้องการ x > 0)"); return; }
+
+  const fa = f(a);
+  const m = centralDiff(f, a, h);            // ความชันที่ h ที่เลือก
+  const ref = centralDiff(f, a, 1e-6);       // ค่าอ้างอิง (h เล็กมาก)
+  const err = Math.abs(m - ref);
+  const okM = Number.isFinite(m) && Number.isFinite(fa);
+
+  const span = (x1 - x0) * 0.3;
+  const tx = [a - span, a + span];
+  const traces = [
+    { x: xs, y: ys.map(clean), mode: "lines", name: "f(x)", line: { color: "#2563eb", width: 3 } }
+  ];
+  if (okM) {
+    traces.push({ x: tx, y: tx.map(t => fa + m * (t - a)), mode: "lines", name: "เส้นสัมผัส",
+      line: { color: "#dc2626", dash: "dash", width: 2 } });
+    const ms = (f(a + h) - fa) / h;
+    if ($("secant").checked && Number.isFinite(ms)) {
+      traces.push({ x: tx, y: tx.map(t => fa + ms * (t - a)), mode: "lines",
+        name: `เส้นเซแคนต์ (h=${h.toExponential(1)})`, line: { color: "#16a34a", dash: "dot", width: 2 } });
+    }
+    traces.push({ x: [a], y: [fa], mode: "markers", name: "จุดสัมผัส", marker: { color: "#111", size: 9 } });
+  }
+
+  const ymin = Math.min(...fin), ymax = Math.max(...fin);
+  const pad = 0.2 * ((ymax - ymin) || 1);
+  const eq = symbolicEq($("expr").value, params);           // สมการ f(x) และ f'(x) สำหรับหัวกราฟ
+  const layout1 = baseLayout(P.xl, P.yl,
+    `f(x) และเส้นสัมผัส<br><span style="font-size:12px">f(x) = ${eq.f}</span>`);
+  layout1.margin.t = 60;
+  layout1.yaxis = { title: P.yl, range: [ymin - pad, ymax + pad] };
+  Plotly.react("plot1", traces, layout1, cfg);
+
+  // กราฟ f'(x)
+  const showD = $("showD").checked;
+  $("plot2card").classList.toggle("hidden", !showD);
+  $("plots").style.gridTemplateColumns = showD ? "" : "1fr";
+  if (showD) {
+    const dy = xs.map(x => centralDiff(f, x, 1e-5));
+    const d2 = [
+      { x: xs, y: dy.map(clean), mode: "lines", name: "f'(x)", line: { color: "#7c3aed", width: 3 } },
+      { x: [x0, x1], y: [0, 0], mode: "lines", name: "y = 0", line: { color: "#9ca3af", width: 1 } }
+    ];
+    if (okM) d2.push({ x: [a], y: [m], mode: "markers", name: "f'(a)", marker: { color: "#dc2626", size: 9 } });
+    const layout2 = baseLayout(P.xl, "f'(x)",
+      `กราฟอนุพันธ์ f'(x)<br><span style="font-size:12px">f'(x) = ${eq.d}</span>`);
+    layout2.margin.t = 60;
+    Plotly.react("plot2", d2, layout2, cfg);
+  }
+
+  if (!okM) {
+    $("calc").textContent =
+`คำนวณอนุพันธ์ที่ a = ${a} ไม่ได้
+เพราะฟังก์ชันไม่มีค่าที่ a−h, a หรือ a+h (อาจอยู่นอกโดเมน เช่น ln หรือ sqrt ของค่าลบ)
+ลองเลือก a ให้อยู่ในโดเมนของฟังก์ชัน หรือลดค่า h`;
+    return;
+  }
+  $("calc").textContent =
+`จุดสัมผัส: a = ${a.toFixed(3)},  f(a) = ${fmt(fa)}
+${P.sl} ≈ [f(a+h) − f(a−h)] / 2h = ${fmt(m, 6)}   (h = ${h.toExponential(1)})
+ค่าอ้างอิง (h = 1e-6) = ${fmt(ref, 6)},  คลาดเคลื่อน = ${err.toExponential(2)}
+สมการเส้นสัมผัส: y − ${fmt(fa, 3)} = ${fmt(m, 3)}(x − ${a.toFixed(3)})
+               y = ${fmt(m, 3)}x + ${fmt(fa - m * a, 3)}`;
+}
+
+/* ============================================================
+   ส่วนที่ 4: 2D Mode 2 – หาจุดตัดของ f(x) กับ g(x) ด้วย Newton-Raphson
+   ============================================================ */
+// Newton-Raphson หาราก H(x) = 0 : x_{n+1} = x_n − H(x_n)/H'(x_n)
+function newton(H, x0, tol = 1e-10, maxIt = 50) {
+  let x = x0;
+  const steps = [{ n: 0, x, hx: H(x) }];
+  for (let n = 1; n <= maxIt; n++) {
+    const d = centralDiff(H, x, 1e-6);
+    if (!Number.isFinite(d) || Math.abs(d) < 1e-12) break;
+    const xn = x - H(x) / d;
+    if (!Number.isFinite(xn)) break;
+    steps.push({ n, x: xn, hx: H(xn) });
+    const done = Math.abs(xn - x) < tol;
+    x = xn;
+    if (done) break;
+  }
+  return { x, steps, ok: Math.abs(H(x)) < 1e-6 };
+}
+
+let inter = { f: null, g: null, roots: [] };   // เก็บผลล่าสุดไว้แสดงตาราง
+
+function drawInter() {
+  const xmin = num("xmin"), xmax = num("xmax");
+  const setErr = msg => { $("err2").textContent = msg; };
+  if (![xmin, xmax].every(Number.isFinite)) { setErr("กรุณากรอกช่วง x ให้เป็นตัวเลข"); return; }
+  if (!(xmax > xmin)) { setErr("x สูงสุดต้องมากกว่า x ต่ำสุด"); return; }
+
+  let f, g;
+  try { f = makeF($("expr2").value, {}); }
+  catch (e) { setErr("f(x) ไม่ถูกต้อง: " + e.message); return; }
+  try { g = makeF($("expr3").value, {}); }
+  catch (e) { setErr("g(x) ไม่ถูกต้อง: " + e.message); return; }
+  setErr("");
+
+  const H = x => f(x) - g(x);                // จุดตัดคือรากของ H(x) = 0
+
+  // สแกนหาจุดเริ่มต้น: ช่วงที่เครื่องหมายเปลี่ยน + จุดที่ |H| ต่ำสุดเฉพาะที่ (กรณีกราฟสัมผัสกัน)
+  const N = 800;
+  const xs = Array.from({ length: N + 1 }, (_, i) => xmin + (xmax - xmin) * i / N);
+  const hs = xs.map(H);
+  const seeds = [];
+  for (let i = 0; i < N; i++) {
+    if (Number.isFinite(hs[i]) && Number.isFinite(hs[i + 1]) && hs[i] * hs[i + 1] <= 0)
+      seeds.push((xs[i] + xs[i + 1]) / 2);
+    if (i > 0 && Number.isFinite(hs[i]) &&
+        Math.abs(hs[i]) <= Math.abs(hs[i - 1]) && Math.abs(hs[i]) <= Math.abs(hs[i + 1]))
+      seeds.push(xs[i]);
+  }
+  const roots = [];
+  for (const s of seeds) {
+    const r = newton(H, s);
+    if (r.ok && Number.isFinite(f(r.x)) && r.x >= xmin - 1e-9 && r.x <= xmax + 1e-9 &&
+        !roots.some(q => Math.abs(q.x - r.x) < 1e-6)) roots.push(r);
+  }
+  roots.sort((p, q) => p.x - q.x);
+
+  // วาดกราฟ
+  const fy = xs.map(f), gy = xs.map(g);
+  const vals = fy.concat(gy).filter(Number.isFinite).sort((p, q) => p - q);
+  if (!vals.length) { setErr("คำนวณค่าฟังก์ชันในช่วงนี้ไม่ได้ (ตรวจโดเมนของฟังก์ชัน)"); return; }
+  // ใช้ช่วงเปอร์เซ็นไทล์ 1–99 กันกราฟแบนเมื่อค่าพุ่งสูง (เช่น tan, 1/x)
+  const lo = vals[Math.floor(0.01 * (vals.length - 1))];
+  const hi = vals[Math.ceil(0.99 * (vals.length - 1))];
+  const pad = 0.15 * ((hi - lo) || 1);
+  const layout = baseLayout("x", "y", "จุดตัดของ f(x) กับ g(x)");
+  layout.yaxis = { title: "y", range: [lo - pad, hi + pad] };
+  Plotly.react("plot3", [
+    { x: xs, y: fy.map(clean), mode: "lines", name: "f(x)", line: { color: "#2563eb", width: 3 } },
+    { x: xs, y: gy.map(clean), mode: "lines", name: "g(x)", line: { color: "#dc2626", width: 3, dash: "dash" } },
+    { x: roots.map(r => r.x), y: roots.map(r => f(r.x)), mode: "markers+text",
+      name: "จุดตัด", marker: { color: "#111", size: 10 },
+      text: roots.map(r => `(${r.x.toFixed(3)}, ${f(r.x).toFixed(3)})`), textposition: "top center" }
+  ], layout, cfg);
+
+  inter = { f, g, roots };
+  renderRoots(0);
+}
+
+// ตารางผลลัพธ์ + ขั้นตอน Newton ของจุดตัดที่เลือก
+function renderRoots(k) {
+  const { f, roots } = inter;
+  let html = `<h3>พบจุดตัด ${roots.length} จุด</h3>`;
+  if (!roots.length) {
+    $("roots").innerHTML = html + `<p class="hint">ไม่พบจุดตัดในช่วงนี้ ลองขยายช่วง x หรือเปลี่ยนฟังก์ชัน</p>`;
+    return;
+  }
+  html += `<table><tr><th>#</th><th>x</th><th>y</th><th>จำนวนรอบ Newton</th></tr>`;
+  roots.forEach((r, i) => {
+    html += `<tr><td>${i + 1}</td><td>${r.x.toFixed(6)}</td><td>${f(r.x).toFixed(6)}</td><td>${r.steps.length - 1}</td></tr>`;
+  });
+  html += `</table>
+    <h3>ขั้นตอน Newton-Raphson ของจุดตัดที่
+      <select id="rootSel" style="width:auto">${roots.map((_, i) =>
+        `<option value="${i}" ${i === k ? "selected" : ""}>${i + 1}</option>`).join("")}</select>
+    </h3>
+    <p class="hint">H(x) = f(x) − g(x),  xₙ₊₁ = xₙ − H(xₙ)/H'(xₙ)  ·  ค่าเริ่มต้น x₀ ได้จากการสแกนช่วง</p>
+    <table><tr><th>รอบ n</th><th>xₙ</th><th>H(xₙ) = f(xₙ) − g(xₙ)</th></tr>`;
+  roots[k].steps.forEach(s => {
+    html += `<tr><td>${s.n}</td><td>${s.x.toFixed(10)}</td><td>${s.hx.toExponential(3)}</td></tr>`;
+  });
+  $("roots").innerHTML = html + `</table>`;
+  $("rootSel").addEventListener("change", e => renderRoots(+e.target.value));
+}
+
+/* ============================================================
+   ส่วนที่ 5: ตัวช่วยสำหรับ 3 มิติ
+   ============================================================ */
+// Math Parser แบบ 2 ตัวแปร: z = f(x, y)
+function makeF2(expr, scope) {
+  const code = math.compile(expr);
+  const base = { ...FUNCS, ...scope };
+  code.evaluate({ ...base, x: 1, y: 1 });     // ทดสอบ ถ้าสมการผิดจะ throw ตรงนี้
+  return (x, y) => {
+    try {
+      const v = code.evaluate({ ...base, x, y });
+      return typeof v === "number" ? v : NaN;
+    } catch (e) { return NaN; }
+  };
+}
+
+// อนุพันธ์ย่อยแบบ Central Difference
+const pdx = (f, x, y, h) => (f(x + h, y) - f(x - h, y)) / (2 * h);   // ∂f/∂x
+const pdy = (f, x, y, h) => (f(x, y + h) - f(x, y - h)) / (2 * h);   // ∂f/∂y
+
+// เมทริกซ์เฮสเซียน (อนุพันธ์ย่อยอันดับสอง) ด้วยผลต่างสืบเนื่อง
+function hessian(f, x, y, h = 1e-4) {
+  const f0 = f(x, y);
+  const fxx = (f(x + h, y) - 2 * f0 + f(x - h, y)) / (h * h);
+  const fyy = (f(x, y + h) - 2 * f0 + f(x, y - h)) / (h * h);
+  const fxy = (f(x + h, y + h) - f(x + h, y - h) - f(x - h, y + h) + f(x - h, y - h)) / (4 * h * h);
+  return { fxx, fyy, fxy };
+}
+
+const linspace = (a, b, n) => Array.from({ length: n }, (_, i) => a + (b - a) * i / (n - 1));
+const gridZ = (f, xs, ys) => ys.map(y => xs.map(x => clean(f(x, y))));   // z[j][i] = f(xs[i], ys[j])
+const signed = (v, d = 3) => (v < 0 ? "− " : "+ ") + Math.abs(v).toFixed(d);
+const debounce = (fn, ms = 120) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
+
+// ช่วงแกน z แบบเปอร์เซ็นไทล์ 1–99 กันกราฟแบนเมื่อค่าพุ่งสูง
+function robustRange(arr) {
+  const v = arr.filter(Number.isFinite).sort((p, q) => p - q);
+  if (!v.length) return null;
+  const lo = v[Math.floor(0.01 * (v.length - 1))], hi = v[Math.ceil(0.99 * (v.length - 1))];
+  const pad = 0.15 * ((hi - lo) || 1);
+  return [lo - pad, hi + pad];
+}
+
+function layout3d(xl, yl, zl, title, zr, rev) {
+  return {
+    title: { text: title, font: { size: 14 } },
+    margin: { l: 0, r: 0, t: 40, b: 0 },
+    uirevision: rev,                      // คงมุมกล้องที่ผู้ใช้หมุนไว้ระหว่างปรับค่า
+    legend: { orientation: "h", y: -0.02 },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    scene: {
+      xaxis: { title: xl }, yaxis: { title: yl }, zaxis: { title: zl, range: zr },
+      aspectmode: "cube", camera: { eye: { x: 1.6, y: -1.6, z: 1.1 } }
+    }
+  };
+}
+
+/* ============================================================
+   ส่วนที่ 6: 3D Mode 1 – ระนาบสัมผัส (กำหนดเอง)
+   ============================================================ */
+const CUSTOM3 = {
+  expr: "A*x^2 + B*y^2 + C",
+  params: [["A", 1], ["B", 1], ["C", 0]],
+  xr: [-3, 3], yr: [-3, 3], pt: [1, 1]
+};
+
+let params3 = { A: 0, B: 0, C: 0 };
+let active3 = [];
+
+function buildParams3(P) {
+  const box = $("sParamBox");
+  box.innerHTML = "";
+  params3 = { A: 0, B: 0, C: 0 };
+  active3 = [];
+  P.params.forEach(([label, val], i) => {
+    const n = NAMES[i];
+    params3[n] = val;
+    active3.push(n);
+    const d = document.createElement("div");
+    d.innerHTML = `<label>${label}</label><input type="number" step="any" value="${val}">`;
+    box.appendChild(d);
+    d.querySelector("input").addEventListener("input", e => {
+      params3[n] = e.target.valueAsNumber;
+      draw3Lazy();
+    });
+  });
+}
+
+function init3() {
+  const P = CUSTOM3;
+  $("sExpr").value = P.expr;
+  buildParams3(P);
+  $("sXmin").value = P.xr[0]; $("sXmax").value = P.xr[1];
+  $("sYmin").value = P.yr[0]; $("sYmax").value = P.yr[1];
+  $("sA").value = P.pt[0];    $("sB").value = P.pt[1];
+  draw3();
+}
+
+function draw3() {
+  const xl = "x", yl = "y", zl = "z = f(x, y)";
+  const a = num("sA"), b = num("sB"), h = num("sH");
+  const x0 = num("sXmin"), x1 = num("sXmax"), y0 = num("sYmin"), y1 = num("sYmax");
+  const setErr = msg => { $("sErr").textContent = msg; };
+
+  if ([a, b, h, x0, x1, y0, y1].some(v => !Number.isFinite(v)) || active3.some(n => !Number.isFinite(params3[n]))) {
+    setErr("กรุณากรอกค่าที่เป็นตัวเลขให้ครบทุกช่อง"); return;
+  }
+  if (!(x1 > x0 && y1 > y0)) { setErr("ค่าสูงสุดต้องมากกว่าค่าต่ำสุด ทั้งแกน x และแกน y"); return; }
+  if (!(h > 0)) { setErr("ค่า h ต้องมากกว่า 0"); return; }
+
+  let f;
+  try { f = makeF2($("sExpr").value, params3); setErr(""); }
+  catch (e) { setErr("สมการไม่ถูกต้อง: " + e.message); return; }
+
+  // พื้นผิว
+  const N = 60, xs = linspace(x0, x1, N), ys = linspace(y0, y1, N), Z = gridZ(f, xs, ys);
+  const zr = robustRange(Z.flat());
+  if (!zr) { setErr("คำนวณค่าฟังก์ชันในช่วงนี้ไม่ได้ (ตรวจโดเมนของฟังก์ชัน)"); return; }
+
+  // อนุพันธ์ย่อย ณ จุด (a, b)
+  const c0 = f(a, b), fx = pdx(f, a, b, h), fy = pdy(f, a, b, h);
+  const ok = [c0, fx, fy].every(Number.isFinite);
+  const g = Math.hypot(fx, fy);
+
+  const traces = [{ type: "surface", x: xs, y: ys, z: Z, name: "z = f(x, y)",
+    colorscale: "Viridis", opacity: 0.9, showscale: false }];
+  if (ok) {
+    if ($("sPlane").checked) {
+      const px = linspace(a - 0.25 * (x1 - x0), a + 0.25 * (x1 - x0), 10);
+      const py = linspace(b - 0.25 * (y1 - y0), b + 0.25 * (y1 - y0), 10);
+      traces.push({ type: "surface", x: px, y: py,
+        z: py.map(y => px.map(x => c0 + fx * (x - a) + fy * (y - b))),
+        name: "ระนาบสัมผัส", colorscale: [[0, "#dc2626"], [1, "#dc2626"]], opacity: 0.55, showscale: false });
+    }
+    if ($("sTrace").checked) {
+      traces.push({ type: "scatter3d", mode: "lines", name: "ภาคตัด y = b (ความชัน ∂f/∂x)",
+        x: xs, y: xs.map(() => b), z: xs.map(x => clean(f(x, b))), line: { color: "#f97316", width: 6 } });
+      traces.push({ type: "scatter3d", mode: "lines", name: "ภาคตัด x = a (ความชัน ∂f/∂y)",
+        x: ys.map(() => a), y: ys, z: ys.map(y => clean(f(a, y))), line: { color: "#16a34a", width: 6 } });
+    }
+    traces.push({ type: "scatter3d", mode: "markers", name: "จุดสัมผัส",
+      x: [a], y: [b], z: [c0], marker: { color: "#111", size: 5 } });
+  }
+  Plotly.react("sPlot1", traces, layout3d(xl, yl, zl, "พื้นผิว f(x, y) และระนาบสัมผัส", zr, "tangent"), cfg);
+
+  // กราฟเส้นระดับ + เวกเตอร์เกรเดียนต์
+  const ct = [{ type: "contour", x: xs, y: ys, z: Z, name: "เส้นระดับ", colorscale: "Viridis",
+    showscale: false, ncontours: 20, zmin: zr[0], zmax: zr[1],
+    contours: { coloring: "heatmap", showlabels: true, labelfont: { size: 10, color: "white" } } }];
+  if (ok) ct.push({ type: "scatter", mode: "markers", name: "จุด (a, b)", x: [a], y: [b],
+    marker: { color: "#111", size: 10, line: { color: "#fff", width: 1.5 } } });
+  const lc = baseLayout(xl, yl, "เส้นระดับ (Contour) และเวกเตอร์เกรเดียนต์ ∇f");
+  lc.xaxis.range = [x0, x1]; lc.yaxis.range = [y0, y1]; lc.uirevision = "tangent";
+  if (ok && $("sGrad").checked && g > 1e-12) {
+    const s = 0.18 * Math.min(x1 - x0, y1 - y0) / g;   // ย่อ/ขยายลูกศรให้ยาวพอดีกราฟ (ทิศไม่เปลี่ยน)
+    lc.annotations = [{ x: a + fx * s, y: b + fy * s, ax: a, ay: b,
+      xref: "x", yref: "y", axref: "x", ayref: "y", text: "", showarrow: true,
+      arrowhead: 3, arrowsize: 1.2, arrowwidth: 2.5, arrowcolor: "#dc2626" }];
+  }
+  Plotly.react("sPlot2", ct, lc, cfg);
+
+  // ขั้นตอนการคำนวณ
+  if (!ok) {
+    $("sCalc").textContent =
+`คำนวณอนุพันธ์ย่อยที่ (${a}, ${b}) ไม่ได้
+เพราะจุดนี้หรือจุดข้างเคียงอยู่นอกโดเมนของฟังก์ชัน (เช่น ln หรือ sqrt ของค่าลบ)
+ลองเปลี่ยนจุด (a, b) หรือลดค่า h`;
+    return;
+  }
+  const c = c0 - fx * a - fy * b;
+  $("sCalc").textContent =
+`จุดสัมผัส: (a, b) = (${a.toFixed(3)}, ${b.toFixed(3)}),  f(a, b) = ${fmt(c0)}
+∂f/∂x ≈ [f(a+h, b) − f(a−h, b)] / 2h = ${fmt(fx, 6)}
+∂f/∂y ≈ [f(a, b+h) − f(a, b−h)] / 2h = ${fmt(fy, 6)}   (h = ${h.toExponential(1)})
+เกรเดียนต์: ∇f(a, b) = (${fmt(fx)}, ${fmt(fy)}),  |∇f| = ${fmt(g)}  ← ทิศที่ f เพิ่มขึ้นเร็วที่สุด
+สมการระนาบสัมผัส: z − ${fmt(c0, 3)} = ${fmt(fx, 3)}(x − ${a.toFixed(3)}) ${signed(fy)}(y − ${b.toFixed(3)})
+                 z = ${fmt(fx, 3)}x ${signed(fy)}y ${signed(c)}
+เวกเตอร์แนวฉากของระนาบ: n = (${fmt(fx, 3)}, ${fmt(fy, 3)}, −1)`;
+}
+
+/* ============================================================
+   ส่วนที่ 7: 3D Mode 2 – หาจุดวิกฤตด้วย Newton-Raphson 2 ตัวแปร
+   ============================================================ */
+// [x, y]_{n+1} = [x, y]_n − H⁻¹ ∇f   (H = เมทริกซ์เฮสเซียน)
+function newton2(f, x0, y0, tol = 1e-9, maxIt = 40) {
+  let x = x0, y = y0, conv = false;
+  const steps = [{ n: 0, x, y, g: Math.hypot(pdx(f, x, y, 1e-5), pdy(f, x, y, 1e-5)) }];
+  for (let n = 1; n <= maxIt; n++) {
+    const gx = pdx(f, x, y, 1e-5), gy = pdy(f, x, y, 1e-5);
+    const { fxx, fyy, fxy } = hessian(f, x, y);
+    const det = fxx * fyy - fxy * fxy;
+    if (![gx, gy, det].every(Number.isFinite) || Math.abs(det) < 1e-12) break;
+    const dx = -(fyy * gx - fxy * gy) / det;
+    const dy = -(fxx * gy - fxy * gx) / det;
+    x += dx; y += dy;
+    steps.push({ n, x, y, g: Math.hypot(pdx(f, x, y, 1e-5), pdy(f, x, y, 1e-5)) });
+    if (Math.hypot(dx, dy) < tol) { conv = true; break; }
+  }
+  const gEnd = steps[steps.length - 1].g;
+  return { x, y, steps, ok: conv && gEnd < 1e-6 && Number.isFinite(f(x, y)) };
+}
+
+// ตัวทดสอบอนุพันธ์อันดับสอง
+function classify(D, fxx) {
+  if (Math.abs(D) < 1e-8) return "สรุปไม่ได้ (D ≈ 0)";
+  if (D < 0) return "จุดอานม้า";
+  return fxx > 0 ? "ค่าต่ำสุดสัมพัทธ์" : "ค่าสูงสุดสัมพัทธ์";
+}
+
+let crit = { pts: [] };
+
+function drawCrit() {
+  const x0 = num("cXmin"), x1 = num("cXmax"), y0 = num("cYmin"), y1 = num("cYmax");
+  const setErr = msg => { $("cErr").textContent = msg; };
+  if (![x0, x1, y0, y1].every(Number.isFinite)) { setErr("กรุณากรอกช่วง x, y ให้เป็นตัวเลข"); return; }
+  if (!(x1 > x0 && y1 > y0)) { setErr("ค่าสูงสุดต้องมากกว่าค่าต่ำสุด ทั้งแกน x และแกน y"); return; }
+
+  let f;
+  try { f = makeF2($("cExpr").value, {}); setErr(""); }
+  catch (e) { setErr("สมการไม่ถูกต้อง: " + e.message); return; }
+
+  // ปล่อยจุดเริ่มต้นเป็นตาราง 10×10 แล้วให้ Newton วิ่งเข้าหาจุดวิกฤต
+  const S = 10, pts = [];
+  for (let i = 0; i < S; i++) for (let j = 0; j < S; j++) {
+    const sx = x0 + (x1 - x0) * (i + 0.5) / S, sy = y0 + (y1 - y0) * (j + 0.5) / S;
+    const r = newton2(f, sx, sy);
+    if (r.ok && r.x >= x0 - 1e-9 && r.x <= x1 + 1e-9 && r.y >= y0 - 1e-9 && r.y <= y1 + 1e-9 &&
+        !pts.some(p => Math.hypot(p.x - r.x, p.y - r.y) < 1e-5)) {
+      const H = hessian(f, r.x, r.y);
+      r.z = f(r.x, r.y);
+      Object.assign(r, H);
+      r.D = H.fxx * H.fyy - H.fxy * H.fxy;
+      r.type = classify(r.D, H.fxx);
+      pts.push(r);
+    }
+  }
+  pts.sort((p, q) => p.x - q.x || p.y - q.y);
+
+  const N = 60, xs = linspace(x0, x1, N), ys = linspace(y0, y1, N), Z = gridZ(f, xs, ys);
+  const zr = robustRange(Z.flat());
+  if (!zr) { setErr("คำนวณค่าฟังก์ชันในช่วงนี้ไม่ได้ (ตรวจโดเมนของฟังก์ชัน)"); return; }
+
+  const TYPES = [["ค่าสูงสุดสัมพัทธ์", "#dc2626"], ["ค่าต่ำสุดสัมพัทธ์", "#2563eb"],
+                 ["จุดอานม้า", "#f59e0b"], ["สรุปไม่ได้ (D ≈ 0)", "#6b7280"]];
+  const t3 = [{ type: "surface", x: xs, y: ys, z: Z, name: "z = f(x, y)",
+    colorscale: "Viridis", opacity: 0.85, showscale: false }];
+  const t2 = [{ type: "contour", x: xs, y: ys, z: Z, name: "เส้นระดับ", colorscale: "Viridis",
+    showscale: false, ncontours: 20, zmin: zr[0], zmax: zr[1], contours: { coloring: "heatmap" } }];
+  TYPES.forEach(([name, color]) => {
+    const grp = pts.filter(p => p.type === name);
+    if (!grp.length) return;
+    t3.push({ type: "scatter3d", mode: "markers", name, x: grp.map(p => p.x), y: grp.map(p => p.y),
+      z: grp.map(p => p.z), marker: { color, size: 6, line: { color: "#fff", width: 1 } } });
+    t2.push({ type: "scatter", mode: "markers", name, x: grp.map(p => p.x), y: grp.map(p => p.y),
+      marker: { color, size: 12, line: { color: "#fff", width: 1.5 } } });
+  });
+  Plotly.react("cPlot1", t3, layout3d("x", "y", "z", "พื้นผิวและจุดวิกฤต", zr, "crit"), cfg);
+  const lc = baseLayout("x", "y", "เส้นระดับและตำแหน่งจุดวิกฤต");
+  lc.xaxis.range = [x0, x1]; lc.yaxis.range = [y0, y1];
+  Plotly.react("cPlot2", t2, lc, cfg);
+
+  crit = { pts };
+  renderCrit(0);
+}
+
+function renderCrit(k) {
+  const { pts } = crit;
+  let html = `<h3>พบจุดวิกฤต ${pts.length} จุด</h3>`;
+  if (!pts.length) {
+    $("cRoots").innerHTML = html + `<p class="hint">ไม่พบจุดที่ ∇f = 0 ในช่วงนี้ ลองขยายช่วง x, y หรือเปลี่ยนฟังก์ชัน</p>`;
+    return;
+  }
+  html += `<div style="overflow-x:auto"><table><tr><th>#</th><th>x</th><th>y</th><th>f(x, y)</th>
+    <th>fxx</th><th>fyy</th><th>fxy</th><th>D</th><th>ประเภท</th><th>รอบ</th></tr>`;
+  pts.forEach((p, i) => {
+    html += `<tr><td>${i + 1}</td><td>${p.x.toFixed(6)}</td><td>${p.y.toFixed(6)}</td><td>${p.z.toFixed(6)}</td>
+      <td>${p.fxx.toFixed(3)}</td><td>${p.fyy.toFixed(3)}</td><td>${p.fxy.toFixed(3)}</td><td>${p.D.toFixed(3)}</td>
+      <td>${p.type}</td><td>${p.steps.length - 1}</td></tr>`;
+  });
+  html += `</table></div>
+    <p class="hint">ตัวทดสอบอนุพันธ์อันดับสอง: D = fxx·fyy − fxy²  ·  D &gt; 0 และ fxx &gt; 0 → ต่ำสุดสัมพัทธ์
+      ·  D &gt; 0 และ fxx &lt; 0 → สูงสุดสัมพัทธ์  ·  D &lt; 0 → จุดอานม้า</p>
+    <h3>ขั้นตอน Newton-Raphson ของจุดที่
+      <select id="cSel" style="width:auto">${pts.map((_, i) =>
+        `<option value="${i}" ${i === k ? "selected" : ""}>${i + 1}</option>`).join("")}</select>
+    </h3>
+    <p class="hint">[xₙ₊₁, yₙ₊₁] = [xₙ, yₙ] − H⁻¹·∇f(xₙ, yₙ)  โดย H คือเมทริกซ์เฮสเซียน [fxx fxy; fxy fyy]</p>
+    <table><tr><th>รอบ n</th><th>xₙ</th><th>yₙ</th><th>|∇f(xₙ, yₙ)|</th></tr>`;
+  pts[k].steps.forEach(s => {
+    html += `<tr><td>${s.n}</td><td>${s.x.toFixed(10)}</td><td>${s.y.toFixed(10)}</td><td>${s.g.toExponential(3)}</td></tr>`;
+  });
+  $("cRoots").innerHTML = html + `</table>`;
+  $("cSel").addEventListener("change", e => renderCrit(+e.target.value));
+}
+
+/* ============================================================
+   ส่วนที่ 8: สลับมิติ / สลับโหมด + ผูก event
+   ============================================================ */
+let cur2 = 1, cur3 = 1, ready3 = false;
+
+function resizeAll() {
+  ["plot1", "plot2", "plot3", "sPlot1", "sPlot2", "cPlot1", "cPlot2"].forEach(id => {
+    const el = $(id);
+    if (el && el._fullLayout && el.offsetParent !== null) Plotly.Plots.resize(el);
+  });
+}
+
+function showDim(d) {
+  $("dim2").classList.toggle("hidden", d !== 2);
+  $("dim3").classList.toggle("hidden", d !== 3);
+  $("dimBtn2").classList.toggle("active", d === 2);
+  $("dimBtn3").classList.toggle("active", d === 3);
+  d === 2 ? showMode(cur2) : showMode3(cur3);
+}
+
+function showMode(n) {
+  cur2 = n;
+  $("mode1").classList.toggle("hidden", n !== 1);
+  $("mode2").classList.toggle("hidden", n !== 2);
+  $("tab1").classList.toggle("active", n === 1);
+  $("tab2").classList.toggle("active", n === 2);
+  n === 1 ? draw() : drawInter();
+  requestAnimationFrame(resizeAll);
+}
+
+function showMode3(n) {
+  cur3 = n;
+  $("mode3").classList.toggle("hidden", n !== 1);
+  $("mode4").classList.toggle("hidden", n !== 2);
+  $("tab3").classList.toggle("active", n === 1);
+  $("tab4").classList.toggle("active", n === 2);
+  if (n === 1) { ready3 ? draw3() : (ready3 = true, init3()); }
+  else drawCrit();
+  requestAnimationFrame(resizeAll);
+}
+
+// ----- 2D Mode 1 -----
+Object.entries(PRESETS).forEach(([k, P]) => {
+  const o = document.createElement("option");
+  o.value = k; o.textContent = P.name;
+  $("preset").appendChild(o);
+});
+$("preset").addEventListener("change", e => setPreset(e.target.value));
+["a", "h", "x0", "x1", "secant", "showD", "expr"].forEach(id => $(id).addEventListener("input", draw));
+
+// ----- 2D Mode 2 -----
+["expr2", "expr3", "xmin", "xmax"].forEach(id => $(id).addEventListener("input", drawInter));
+
+// ----- 3D Mode 1 -----
+const draw3Lazy = debounce(draw3);           // หน่วงเล็กน้อยระหว่างพิมพ์ ให้ลื่นขึ้น
+["sExpr", "sA", "sB", "sH", "sXmin", "sXmax", "sYmin", "sYmax"].forEach(id => $(id).addEventListener("input", draw3Lazy));
+["sPlane", "sTrace", "sGrad"].forEach(id => $(id).addEventListener("change", draw3));
+
+// ----- 3D Mode 2 -----
+const drawCritLazy = debounce(drawCrit, 250);
+["cExpr", "cXmin", "cXmax", "cYmin", "cYmax"].forEach(id => $(id).addEventListener("input", drawCritLazy));
+
+window.addEventListener("resize", resizeAll);
+
+setPreset("custom");
+</script>
+</body>
+</html>
